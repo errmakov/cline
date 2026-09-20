@@ -557,6 +557,52 @@ describe("ProviderSettingsManager", () => {
 		);
 	});
 
+	it("deletes a provider entry and the references that point at it", () => {
+		const tempDir = mkdtempSync(
+			path.join(os.tmpdir(), "core-provider-settings-"),
+		);
+		tempDirs.push(tempDir);
+		const filePath = path.join(tempDir, "provider-settings.json");
+		const manager = new ProviderSettingsManager({ filePath });
+
+		manager.saveProviderSettings({ provider: "anthropic", apiKey: "keep-key" });
+		manager.saveProviderSettings({ provider: "zai", apiKey: "drop-key" });
+		manager.setVoiceInputSettings({
+			providerId: "zai",
+			modelId: "scribe_v2",
+		});
+
+		manager.deleteProviderSettings("zai");
+
+		const reloaded = new ProviderSettingsManager({ filePath });
+		expect(reloaded.read().providers).not.toHaveProperty("zai");
+		expect(reloaded.getProviderSettings("zai")).toBe(undefined);
+		expect(reloaded.read().lastUsedProvider).toBe(undefined);
+		expect(reloaded.getVoiceInputSettings()).toBe(undefined);
+		expect(reloaded.getProviderSettings("anthropic")?.apiKey).toBe("keep-key");
+	});
+
+	it("keeps unrelated references when deleting a provider entry", () => {
+		const tempDir = mkdtempSync(
+			path.join(os.tmpdir(), "core-provider-settings-"),
+		);
+		tempDirs.push(tempDir);
+		const filePath = path.join(tempDir, "provider-settings.json");
+		const manager = new ProviderSettingsManager({ filePath });
+
+		manager.saveProviderSettings({ provider: "zai", apiKey: "drop-key" });
+		manager.saveProviderSettings({ provider: "anthropic", apiKey: "keep-key" });
+		manager.setVoiceInputSettings({
+			providerId: "elevenlabs",
+			modelId: "scribe_v2",
+		});
+
+		manager.deleteProviderSettings("zai");
+
+		expect(manager.getLastUsedProviderSettings()?.provider).toBe("anthropic");
+		expect(manager.getVoiceInputSettings()?.providerId).toBe("elevenlabs");
+	});
+
 	it("allows overriding token source metadata", () => {
 		const tempDir = mkdtempSync(
 			path.join(os.tmpdir(), "core-provider-settings-"),

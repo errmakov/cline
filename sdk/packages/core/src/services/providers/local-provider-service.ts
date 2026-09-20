@@ -1123,13 +1123,7 @@ export function saveLocalProviderSettings(
 	const providerId = request.providerId.trim();
 
 	if (request.enabled === false) {
-		const state = manager.read();
-		delete state.providers[providerId];
-		if (state.lastUsedProvider === providerId) delete state.lastUsedProvider;
-		if (state.modes.voiceInput?.providerId === providerId) {
-			delete state.modes.voiceInput;
-		}
-		manager.write(state);
+		manager.deleteProviderSettings(providerId);
 		return { providerId, enabled: false, settingsPath: manager.getFilePath() };
 	}
 
