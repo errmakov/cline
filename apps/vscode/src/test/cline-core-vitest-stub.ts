@@ -354,6 +354,14 @@ export class ProviderSettingsManager {
 		}
 		return this.read()
 	}
+
+	deleteProviderSettings(providerId: string): ProviderSettingsState {
+		delete this.state.providers[providerId]
+		if (this.state.lastUsedProvider === providerId) {
+			this.state.lastUsedProvider = undefined
+		}
+		return this.read()
+	}
 }
 
 const WORKOS_TOKEN_PREFIX = "workos:"

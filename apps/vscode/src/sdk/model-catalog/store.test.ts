@@ -22,6 +22,11 @@ const mocks = vi.hoisted(() => {
 		providerSettingsById[provider] = { ...settings }
 		return { version: 1, providers: {} }
 	})
+	const deleteProviderSettings = vi.fn((providerId: string) => {
+		const { [providerId]: _removed, ...rest } = providerSettingsById
+		providerSettingsById = rest
+		return { version: 1, providers: {} }
+	})
 
 	return {
 		reset(): void {
@@ -30,6 +35,7 @@ const mocks = vi.hoisted(() => {
 			generatedModelsByProvider = {}
 			modelsFile = { version: 1, providers: {} }
 			saveProviderSettings.mockClear()
+			deleteProviderSettings.mockClear()
 		},
 		setApiConfiguration(value: MockApiConfiguration): void {
 			apiConfiguration = { ...value }
@@ -51,6 +57,9 @@ const mocks = vi.hoisted(() => {
 		},
 		getSaveProviderSettingsMock(): typeof saveProviderSettings {
 			return saveProviderSettings
+		},
+		getDeleteProviderSettingsMock(): typeof deleteProviderSettings {
+			return deleteProviderSettings
 		},
 		getModelsFile() {
 			return modelsFile
@@ -77,6 +86,7 @@ const mocks = vi.hoisted(() => {
 			return {
 				getProviderSettings: (providerId: string) => providerSettingsById[providerId],
 				saveProviderSettings,
+				deleteProviderSettings,
 			}
 		},
 	}
@@ -211,8 +221,58 @@ describe("createProviderConfigStore", () => {
 		store.write(providerId, { apiKey: " \n " })
 
 		expect(mocks.getApiConfiguration().mistralApiKey).toBeUndefined()
-		expect(mocks.getSavedProviderSettings("mistral")).toEqual({ provider: "mistral" })
+		expect(mocks.getSavedProviderSettings("mistral")).toBeUndefined()
 		expect(store.read(providerId).apiKey).toBeUndefined()
+	})
+
+	// providers.json entries are upserted, never removed, so clearing the last
+	// stored field used to leave `{ "provider": "<id>" }` behind: an entry the
+	// extension offers no way to delete that still marks the provider as
+	// configured wherever the file is read (#14323).
+	it("removes the providers.json entry when clearing its last stored field", async () => {
+		const { createProviderConfigStore } = await import("./store")
+		mocks.setProviderSettings({
+			gemini: { provider: "gemini", apiKey: "existing-key" },
+			mistral: { provider: "mistral", apiKey: "other-key" },
+		})
+		mocks.setApiConfiguration({ geminiApiKey: "existing-key" })
+		const store = createProviderConfigStore()
+		const providerId = parseProviderId("gemini")
+
+		store.write(providerId, { apiKey: "" })
+
+		expect(mocks.getDeleteProviderSettingsMock()).toHaveBeenCalledWith("gemini")
+		expect(mocks.getSavedProviderSettings("gemini")).toBeUndefined()
+		expect(mocks.getSavedProviderSettings("mistral")).toEqual({ provider: "mistral", apiKey: "other-key" })
+		expect(store.read(providerId)).toEqual({ providerId })
+	})
+
+	it("keeps the providers.json entry while any other field is still stored", async () => {
+		const { createProviderConfigStore } = await import("./store")
+		mocks.setProviderSettings({ gemini: { provider: "gemini", apiKey: "existing-key", baseUrl: "https://custom.example" } })
+		mocks.setApiConfiguration({ geminiApiKey: "existing-key", geminiBaseUrl: "https://custom.example" })
+		const store = createProviderConfigStore()
+		const providerId = parseProviderId("gemini")
+
+		store.write(providerId, { apiKey: "" })
+
+		expect(mocks.getDeleteProviderSettingsMock()).not.toHaveBeenCalled()
+		expect(mocks.getSavedProviderSettings("gemini")).toEqual({ provider: "gemini", baseUrl: "https://custom.example" })
+	})
+
+	// An empty object left over from clearing a structured block (e.g. the
+	// last AWS credential field) is no more configuration than no block at all.
+	it("removes the providers.json entry when only empty nested blocks remain", async () => {
+		const { createProviderConfigStore } = await import("./store")
+		mocks.setProviderSettings({ bedrock: { provider: "bedrock", aws: { accessKey: "existing-key" } } })
+		mocks.setApiConfiguration({ awsAccessKey: "existing-key" })
+		const store = createProviderConfigStore()
+		const providerId = parseProviderId("bedrock")
+
+		store.write(providerId, { aws: { accessKey: "" } })
+
+		expect(mocks.getDeleteProviderSettingsMock()).toHaveBeenCalledWith("bedrock")
+		expect(mocks.getSavedProviderSettings("bedrock")).toBeUndefined()
 	})
 
 	// Changing the regional API line in the settings UI goes through

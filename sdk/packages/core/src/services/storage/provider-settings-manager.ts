@@ -254,6 +254,34 @@ export class ProviderSettingsManager {
 		return next;
 	}
 
+	/**
+	 * Remove a provider's entry from providers.json.
+	 *
+	 * `saveProviderSettings` is an upsert, so an entry created once — by
+	 * onboarding, by the legacy migration, or by a settings write whose fields
+	 * were later cleared — otherwise survives as an empty shell that still
+	 * counts as a configured provider everywhere this file is read. Drop the
+	 * references that would dangle along with it.
+	 */
+	deleteProviderSettings(providerId: string): StoredProviderSettings {
+		const id = providerId.trim();
+		const previous = this.read();
+		const { [id]: removed, ...providers } = previous.providers;
+		const modes = { ...previous.modes };
+		if (modes.voiceInput?.providerId === id) {
+			delete modes.voiceInput;
+		}
+		const next: StoredProviderSettings = { ...previous, providers, modes };
+		if (next.lastUsedProvider === id) {
+			delete next.lastUsedProvider;
+		}
+		this.write(next);
+		sdkDebug(
+			`providers.delete providerId=${id} existed=${!!removed} lastUsedCleared=${previous.lastUsedProvider === id}`,
+		);
+		return next;
+	}
+
 	private resolveProviderSettings(
 		state: StoredProviderSettings,
 		providerId: string,

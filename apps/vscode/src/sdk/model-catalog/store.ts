@@ -585,6 +585,29 @@ function saveProviderSettings(providerId: ProviderId, next: ProviderSettingsReco
 	getProviderSettingsManager().saveProviderSettings({ ...next, provider }, { setLastUsed: false })
 }
 
+function deleteProviderSettings(providerId: ProviderId): void {
+	getProviderSettingsManager().deleteProviderSettings(providerSettingsProviderId(providerId))
+}
+
+/**
+ * Whether a settings record still carries configuration, i.e. anything beyond
+ * the `provider` id that names it. Blank strings and empty blocks are what
+ * clearing a field leaves behind, so they count as absent.
+ */
+function hasStoredProviderSettings(settings: ProviderSettingsRecord): boolean {
+	return Object.entries(settings).some(([key, value]) => key !== "provider" && !isBlankSettingsValue(value))
+}
+
+function isBlankSettingsValue(value: unknown): boolean {
+	if (value === undefined || value === null || value === "") {
+		return true
+	}
+	if (Array.isArray(value)) {
+		return value.length === 0
+	}
+	return isRecord(value) && Object.values(value).every(isBlankSettingsValue)
+}
+
 function writeProviderSettingsFields(providerId: ProviderId, patch: ProviderConfigPatch): void {
 	const existing = getProviderSettings(providerId)
 	const next: ProviderSettingsRecord = { ...existing }
@@ -674,7 +697,16 @@ function writeProviderSettingsFields(providerId: ProviderId, patch: ProviderConf
 		}
 	}
 
-	saveProviderSettings(providerId, next)
+	// providers.json is written through an upsert, so a record left with nothing
+	// but its `provider` id would persist as an empty shell the settings UI
+	// offers no way to remove, while still counting as a configured provider
+	// everywhere the file is read (#14323). Clearing the last field removes the
+	// entry instead.
+	if (hasStoredProviderSettings(next)) {
+		saveProviderSettings(providerId, next)
+	} else {
+		deleteProviderSettings(providerId)
+	}
 }
 
 function getModelIdKey(providerId: ProviderId, mode: Mode): keyof ApiConfiguration & SettingsKey {
